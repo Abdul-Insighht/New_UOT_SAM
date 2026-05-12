@@ -322,8 +322,7 @@ def main():
     print(f"  UOT Alpha: {args.ot_alpha}, Beta: {args.ot_beta}, Gamma(reg): {args.ot_reg}")
     print(f"  UOT Learnable Margins: {args.learnable_margins} (warmup={args.uot_warmup_epochs} epochs)")
     print(f"  OHEM Loss: {args.use_ohem_loss} (hard_ratio={args.ohem_hard_ratio})")
-    print(f"  Mask Refinement: {args.use_mask_refinement} (RDConv={args.use_rdconv})")
-    print(f"  Lovász Loss: {getattr(args, 'use_lovasz_loss', True)}")
+
     print(f"  Data Augmentation: {getattr(args, 'use_augmentation', True)}")
     print(f"  TTA: {getattr(args, 'use_tta', True)}")
     print(f"{'='*60}\n")
@@ -343,10 +342,7 @@ def main():
         use_contrastive_loss=args.use_contrastive_loss,
         use_multiscale_ot=args.use_multiscale_ot,
         use_ohem_loss=args.use_ohem_loss,
-        # NEW enhancement flags
-        use_mask_refinement=args.use_mask_refinement,
-        use_rdconv=args.use_rdconv,
-        use_lovasz_loss=args.use_lovasz_loss,
+
         # Enhancement params
         contrastive_weight=args.contrastive_weight,
         ohem_hard_ratio=args.ohem_hard_ratio,
@@ -357,8 +353,7 @@ def main():
         num_ot_scales=args.num_ot_scales,
         learnable_margins=args.learnable_margins,
         uot_warmup_epochs=args.uot_warmup_epochs,
-        num_orientations=getattr(args, 'num_orientations', 8),
-        lovasz_weight=getattr(args, 'lovasz_weight', 1.0),
+
     )
     model = model.to(device)
 
