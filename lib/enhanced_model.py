@@ -49,7 +49,6 @@ from .contrastive_loss import ContrastiveLoss
 from .ohem_loss import EnhancedOHEMLoss
 from .ot_feature_alignment import OTFeatureAligner
 from .ot_loss import OTSegmentationLoss
-from .mask_refinement import MaskRefinementHead
 
 
 class Enhanced_RRSIS_UOT(nn.Module):
@@ -102,10 +101,6 @@ class Enhanced_RRSIS_UOT(nn.Module):
         use_contrastive_loss: bool = True,
         use_multiscale_ot: bool = True,
         use_ohem_loss: bool = True,
-        # === NEW Enhancement flags ===
-        use_mask_refinement: bool = True,
-        use_rdconv: bool = True,
-        use_lovasz_loss: bool = True,
         # === Enhancement params ===
         contrastive_weight: float = 0.1,
         ohem_hard_ratio: float = 0.3,
@@ -116,8 +111,6 @@ class Enhanced_RRSIS_UOT(nn.Module):
         num_ot_scales: int = 3,
         learnable_margins: bool = True,
         uot_warmup_epochs: int = 5,
-        num_orientations: int = 8,
-        lovasz_weight: float = 1.0,
     ):
         super().__init__()
         self.image_size = image_size
@@ -125,9 +118,6 @@ class Enhanced_RRSIS_UOT(nn.Module):
         self.use_contrastive_loss = use_contrastive_loss
         self.use_multiscale_ot = use_multiscale_ot
         self.use_ohem_loss = use_ohem_loss
-        self.use_mask_refinement = use_mask_refinement
-        self.use_rdconv = use_rdconv
-        self.use_lovasz_loss = use_lovasz_loss
         self.contrastive_weight = contrastive_weight
 
         # ====== Build SAM3 Image Model ======
@@ -204,26 +194,15 @@ class Enhanced_RRSIS_UOT(nn.Module):
 
         # ====== OHEM Loss ======
         if use_ohem_loss:
-            print("[Enhanced_RRSIS_UOT] OHEM + FocalDice + Boundary Loss enabled")
+            print("[Enhanced_RRSIS_UOT] OHEM + FocalDice Loss enabled")
             self.enhanced_loss = EnhancedOHEMLoss(
                 hard_ratio=ohem_hard_ratio,
-                use_lovasz=use_lovasz_loss,
-                lovasz_weight=lovasz_weight,
             )
         else:
             print("[Enhanced_RRSIS_UOT] Standard Dice+BCE Loss (baseline)")
             self.standard_loss = OTSegmentationLoss()
 
-        # ====== Mask Refinement Head (NEW) ======
-        if use_mask_refinement:
-            print(f"[Enhanced_RRSIS_UOT] Mask Refinement Head (RDConv={use_rdconv}, orientations={num_orientations})")
-            self.mask_refine_head = MaskRefinementHead(
-                d_model=d_model,
-                use_rdconv=use_rdconv,
-                num_orientations=num_orientations,
-            )
-        else:
-            print("[Enhanced_RRSIS_UOT] No mask refinement (standard bilinear upsample)")
+
 
         # ====== Print Summary ======
         get_trainable_params_summary(self)
@@ -346,15 +325,6 @@ class Enhanced_RRSIS_UOT(nn.Module):
         if text_feats is not None and 'backbone_fpn' in backbone_out:
             fpn_feats = backbone_out['backbone_fpn']
 
-            # Save highest-res FPN feature for mask refinement
-            self._cached_fpn_highres = None
-            if self.use_mask_refinement and hasattr(self, 'mask_refine_head'):
-                first_feat = fpn_feats[0]
-                if hasattr(first_feat, 'tensors'):
-                    self._cached_fpn_highres = first_feat.tensors.clone()
-                elif first_feat.dim() == 4:
-                    self._cached_fpn_highres = first_feat.clone()
-
             if self.use_multiscale_ot and hasattr(self, 'ms_ot_aligner'):
                 # Multi-Scale OT alignment (NEW)
                 aligned_fpn = self.ms_ot_aligner(fpn_feats, text_feats, text_mask)
@@ -436,10 +406,6 @@ class Enhanced_RRSIS_UOT(nn.Module):
 
         # ====== Step 8: Select Best Mask ======
         result = self._select_best_mask(out, B)
-
-        # ====== Step 9: Clear cached FPN features ======
-        fpn_highres = getattr(self, '_cached_fpn_highres', None)
-        self._cached_fpn_highres = None
 
         # ====== Step 9: Clear Dynamic LoRA conditioning ======
         if self.use_dynamic_lora and self.lora_manager is not None:
@@ -527,24 +493,12 @@ class Enhanced_RRSIS_UOT(nn.Module):
                 best_masks = best_masks.unsqueeze(1)
             else:
                 best_masks = pred_masks[:, 0:1]
-
-            # Apply mask refinement if enabled, otherwise bilinear upsample
-            fpn_highres = getattr(self, '_cached_fpn_highres', None)
-            if (self.use_mask_refinement
-                    and hasattr(self, 'mask_refine_head')
-                    and fpn_highres is not None):
-                best_masks = self.mask_refine_head(
-                    best_masks,
-                    fpn_highres,
-                    target_size=(self.image_size, self.image_size),
-                )
-            else:
-                best_masks = F.interpolate(
-                    best_masks.float(),
-                    size=(self.image_size, self.image_size),
-                    mode='bilinear',
-                    align_corners=False,
-                )
+            best_masks = F.interpolate(
+                best_masks.float(),
+                size=(self.image_size, self.image_size),
+                mode='bilinear',
+                align_corners=False,
+            )
             result['pred_masks'] = best_masks
         else:
             result['pred_masks'] = torch.zeros(
